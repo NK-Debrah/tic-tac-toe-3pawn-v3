@@ -13,21 +13,105 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const database = firebase.database();
 
-// Helper to ensure we always have a 9‑length array
+// Updated normalizeBoard function
 function normalizeBoard(rawBoard) {
-    if (Array.isArray(rawBoard) && rawBoard.length === 9) {
-        return rawBoard;
-    }
     const arr = Array(9).fill(null);
-    if (rawBoard && typeof rawBoard === 'object') {
+    if (!rawBoard) return arr;
+    
+    if (Array.isArray(rawBoard)) {
+        // Copy first 9 elements, converting undefined to null
+        for (let i = 0; i < 9; i++) {
+            arr[i] = i < rawBoard.length ? (rawBoard[i] === undefined ? null : rawBoard[i]) : null;
+        }
+        return arr;
+    }
+    
+    if (typeof rawBoard === 'object') {
+        // Copy numeric properties, ignoring undefined
         Object.entries(rawBoard).forEach(([key, val]) => {
             const idx = Number(key);
-            if (!isNaN(idx) && idx >= 0 && idx < 9) {
+            if (!isNaN(idx) && idx >= 0 && idx < 9 && val !== undefined) {
                 arr[idx] = val;
             }
         });
     }
+    
     return arr;
+}
+
+// Updated handleCellClick transaction logic
+async function handleCellClick(index) {
+    if (!gameActive) return showNotification('Game not active', 'error');
+
+    try {
+        const snap = await gameRef.once('value');
+        const gd = snap.val();
+        if (!gd) return showNotification('Game not found', 'error');
+        
+        board = normalizeBoard(gd.board);
+        currentPlayer = gd.currentPlayer || 'X';
+        xMoves = toArray(gd.xMoves || []);
+        oMoves = toArray(gd.oMoves || []);
+        gameActive = gd.gameActive !== false;
+
+        const result = await gameRef.transaction(gd2 => {
+            if (!gd2) return;
+            
+            // Normalize and truncate moves arrays
+            gd2.xMoves = toArray(gd2.xMoves || []).slice(-3);
+            gd2.oMoves = toArray(gd2.oMoves || []).slice(-3);
+            gd2.board = normalizeBoard(gd2.board);
+
+            // Validate move
+            if (!gd2.gameActive || playerRole !== gd2.currentPlayer) return;
+            if (gd2.board[index] !== null) return;
+
+            // Handle move with safe pawn removal
+            if (gd2.currentPlayer === 'X') {
+                if (gd2.xMoves.length >= 3) {
+                    const oldIndex = gd2.xMoves[0];
+                    // Safely remove only if it's still our pawn
+                    if (gd2.board[oldIndex] === 'X') {
+                        gd2.board[oldIndex] = null;
+                    }
+                    gd2.xMoves = gd2.xMoves.slice(1);
+                }
+                gd2.xMoves.push(index);
+                gd2.board[index] = 'X';
+            } 
+            else if (gd2.currentPlayer === 'O') {
+                if (gd2.oMoves.length >= 3) {
+                    const oldIndex = gd2.oMoves[0];
+                    if (gd2.board[oldIndex] === 'O') {
+                        gd2.board[oldIndex] = null;
+                    }
+                    gd2.oMoves = gd2.oMoves.slice(1);
+                }
+                gd2.oMoves.push(index);
+                gd2.board[index] = 'O';
+            }
+
+            // Check win/draw
+            if (checkWin(gd2.currentPlayer, gd2.board)) {
+                gd2.winner = gd2.currentPlayer;
+                gd2.gameActive = false;
+            } else if (isBoardFull(gd2.board)) {
+                gd2.winner = 'draw';
+                gd2.gameActive = false;
+            } else {
+                gd2.currentPlayer = gd2.currentPlayer === 'X' ? 'O' : 'X';
+            }
+
+            return gd2;
+        });
+
+        if (result && !result.committed) {
+            showNotification('Invalid move or conflict', 'error');
+        }
+    } catch (err) {
+        console.error('Move error:', err);
+        showNotification('Error making move: ' + err.message, 'error');
+    }
 }
 
 // Helper to convert Firebase objects to arrays
@@ -318,82 +402,81 @@ document.addEventListener('DOMContentLoaded', () => {
         }).catch(err => showNotification('Join failed: '+err.message,'error'));
     }
 
-    // Handle cell click
-    async function handleCellClick(index) {
-        if (!gameActive) {
-            return showNotification('Game not active','error');
-        }
+async function handleCellClick(index) {
+    if (!gameActive) return showNotification('Game not active', 'error');
 
-        try {
-            const snap = await gameRef.once('value');
-            const gd = snap.val();
-            if (!gd) return showNotification('Game not found', 'error');
+    try {
+        const snap = await gameRef.once('value');
+        const gd = snap.val();
+        if (!gd) return showNotification('Game not found', 'error');
+        
+        board = normalizeBoard(gd.board);
+        currentPlayer = gd.currentPlayer || 'X';
+        xMoves = toArray(gd.xMoves || []);
+        oMoves = toArray(gd.oMoves || []);
+        gameActive = gd.gameActive !== false;
+
+        const result = await gameRef.transaction(gd2 => {
+            if (!gd2) return;
             
-            board         = normalizeBoard(gd.board);
-            currentPlayer = gd.currentPlayer || 'X';
-            xMoves        = toArray(gd.xMoves || []);
-            oMoves        = toArray(gd.oMoves || []);
-            gameActive    = gd.gameActive !== false;
+            // Normalize and truncate moves arrays
+            gd2.xMoves = toArray(gd2.xMoves || []).slice(-3);
+            gd2.oMoves = toArray(gd2.oMoves || []).slice(-3);
+            gd2.board = normalizeBoard(gd2.board);
 
-            const result = await gameRef.transaction(gd2 => {
-                if (!gd2) return; // game might have been deleted
-                
-                // Normalize moves arrays
-                gd2.xMoves = toArray(gd2.xMoves || []);
-                gd2.oMoves = toArray(gd2.oMoves || []);
-                gd2.board = normalizeBoard(gd2.board);
+            // Validate move
+            if (!gd2.gameActive || playerRole !== gd2.currentPlayer) return;
+            if (gd2.board[index] !== null) return;
 
-                // Validate move
-                if (!gd2.gameActive || playerRole !== gd2.currentPlayer) {
-                    return; // abort transaction
-                }
-
-                // Allow replacing own pawn when at max
-                if (gd2.board[index] !== null && gd2.board[index] !== gd2.currentPlayer) {
-                    return;
-                }
-
-                // Place pawn - remove oldest pawn BEFORE adding new one
-                if (gd2.currentPlayer === 'X') {
-                    // Remove oldest pawn if we're at max
-                    if (gd2.xMoves.length >= 3) {
-                        const old = gd2.xMoves.shift();
-                        gd2.board[old] = null;
+            // Handle move - FIXED: Ensure pawn count never exceeds 3
+            if (gd2.currentPlayer === 'X') {
+                // Remove oldest pawn BEFORE adding new one
+                if (gd2.xMoves.length >= 3) {
+                    const oldIndex = gd2.xMoves[0];
+                    // Only remove if it's still our pawn
+                    if (gd2.board[oldIndex] === 'X') {
+                        gd2.board[oldIndex] = null;
                     }
-                    gd2.xMoves.push(index);
-                } else {
-                    // Remove oldest pawn if we're at max
-                    if (gd2.oMoves.length >= 3) {
-                        const old = gd2.oMoves.shift();
-                        gd2.board[old] = null;
+                    gd2.xMoves = gd2.xMoves.slice(1);
+                }
+                // Add new pawn
+                gd2.xMoves.push(index);
+                gd2.board[index] = 'X';
+            } 
+            else if (gd2.currentPlayer === 'O') {
+                if (gd2.oMoves.length >= 3) {
+                    const oldIndex = gd2.oMoves[0];
+                    if (gd2.board[oldIndex] === 'O') {
+                        gd2.board[oldIndex] = null;
                     }
-                    gd2.oMoves.push(index);
+                    gd2.oMoves = gd2.oMoves.slice(1);
                 }
-                gd2.board[index] = gd2.currentPlayer;
-
-                // win/draw
-                if (checkWin(gd2.currentPlayer, gd2.board)) {
-                    gd2.winner = gd2.currentPlayer;
-                    gd2.gameActive = false;
-                } else if (isBoardFull(gd2.board)) {
-                    gd2.winner = 'draw';
-                    gd2.gameActive = false;
-                } else {
-                    gd2.currentPlayer = gd2.currentPlayer === 'X' ? 'O' : 'X';
-                }
-
-                return gd2;
-            });
-
-            if (result && !result.committed) {
-                showNotification('Invalid move or conflict','error');
+                gd2.oMoves.push(index);
+                gd2.board[index] = 'O';
             }
 
-        } catch (err) {
-            console.error('Move error:', err);
-            showNotification('Error making move: ' + err.message, 'error');
+            // Check win/draw
+            if (checkWin(gd2.currentPlayer, gd2.board)) {
+                gd2.winner = gd2.currentPlayer;
+                gd2.gameActive = false;
+            } else if (isBoardFull(gd2.board)) {
+                gd2.winner = 'draw';
+                gd2.gameActive = false;
+            } else {
+                gd2.currentPlayer = gd2.currentPlayer === 'X' ? 'O' : 'X';
+            }
+
+            return gd2;
+        });
+
+        if (result && !result.committed) {
+            showNotification('Invalid move or conflict', 'error');
         }
+    } catch (err) {
+        console.error('Move error:', err);
+        showNotification('Error making move: ' + err.message, 'error');
     }
+}
 
     // Reset the game
     function resetGame() {

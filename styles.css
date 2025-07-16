@@ -481,23 +481,22 @@ input::placeholder {
     box-shadow: 0 0 10px #4CAF50;
 }
 
-.pawn-counter.next-to-remove {
-    animation: pulse-remove 1.5s infinite;
-    position: relative;
-}
-
-.pawn-counter.next-to-remove::after {
-    content: '⏱';
-    position: absolute;
-    bottom: -20px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 0.8rem;
-    color: #ff9966;
-}
-
 @keyframes pulse-remove {
     0% { box-shadow: 0 0 0 0 rgba(255, 94, 98, 0.7); }
     70% { box-shadow: 0 0 0 10px rgba(255, 94, 98, 0); }
     100% { box-shadow: 0 0 0 0 rgba(255, 94, 98, 0); }
+}
+
+.cell.next-to-remove {
+    animation: pulse-remove 1.5s infinite;
+    position: relative;
+}
+
+.cell.next-to-remove::after {
+    content: '⏱';
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    font-size: 1rem;
+    color: #ff9966;
 }

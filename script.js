@@ -129,7 +129,29 @@ document.addEventListener('DOMContentLoaded', () => {
             if (value === 'O') cell.classList.add('o');
         });
 
-        // Pawns - with next-to-remove indicator
+        // Clear removal indicators
+        document.querySelectorAll('.cell.next-to-remove').forEach(cell => {
+            cell.classList.remove('next-to-remove');
+        });
+
+        // Show removal indicator on board
+        if (gameActive) {
+            let pawnToRemove = null;
+            if (currentPlayer === 'X' && xMoves.length === 3) {
+                pawnToRemove = xMoves[0];
+            } else if (currentPlayer === 'O' && oMoves.length === 3) {
+                pawnToRemove = oMoves[0];
+            }
+
+            if (pawnToRemove !== null) {
+                const cell = boardElement.querySelector(`.cell[data-index="${pawnToRemove}"]`);
+                if (cell) {
+                    cell.classList.add('next-to-remove');
+                }
+            }
+        }
+
+        // Pawns
         const xPawns = document.querySelector('#playerXSection .player-pawns');
         const oPawns = document.querySelector('#playerOSection .player-pawns');
         xPawns.innerHTML = ''; 
@@ -141,11 +163,6 @@ document.addEventListener('DOMContentLoaded', () => {
             xp.className = 'pawn-counter';
             if (i < xMoves.length) {
                 xp.textContent = 'X';
-                // Mark pawn to be removed next (oldest pawn)
-                if (i === 0 && xMoves.length === 3) {
-                    xp.classList.add('next-to-remove');
-                    xp.title = 'Will be removed next';
-                }
             }
             xPawns.appendChild(xp);
 
@@ -154,11 +171,6 @@ document.addEventListener('DOMContentLoaded', () => {
             op.className = 'pawn-counter';
             if (i < oMoves.length) {
                 op.textContent = 'O';
-                // Mark pawn to be removed next (oldest pawn)
-                if (i === 0 && oMoves.length === 3) {
-                    op.classList.add('next-to-remove');
-                    op.title = 'Will be removed next';
-                }
             }
             oPawns.appendChild(op);
         }
@@ -309,8 +321,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Handle cell click
     async function handleCellClick(index) {
-        if (!gameActive || board[index] !== null) {
-            return showNotification('Invalid move','error');
+        if (!gameActive) {
+            return showNotification('Game not active','error');
         }
 
         try {
@@ -333,8 +345,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 gd2.board = normalizeBoard(gd2.board);
 
                 // Validate move
-                if (!gd2.gameActive || gd2.board[index] !== null || playerRole !== gd2.currentPlayer) {
+                if (!gd2.gameActive || playerRole !== gd2.currentPlayer) {
                     return; // abort transaction
+                }
+
+                // Allow replacing own pawn when at max
+                if (gd2.board[index] !== null && gd2.board[index] !== gd2.currentPlayer) {
+                    return;
                 }
 
                 // Place pawn - remove oldest pawn BEFORE adding new one

@@ -1,4 +1,3 @@
-// Firebase configuration - REPLACE WITH YOUR OWN CONFIG
 const firebaseConfig = {
     apiKey: "AIzaSyBGbRWE0fq5WS7kKyqWJfWuUEFXpv2cDp4",
     authDomain: "tictactoe3pawn.firebaseapp.com",
@@ -399,11 +398,29 @@ document.addEventListener('DOMContentLoaded', () => {
     // Reset the game
     function resetGame() {
         if (!gameRef) return showNotification('No game to reset','error');
+        
+        // Optimistically reset local state
+        board = Array(9).fill(null);
+        currentPlayer = 'X';
+        xMoves = [];
+        oMoves = [];
+        gameActive = true;
+        
+        // Update display immediately
+        updateGameDisplay();
+        
+        // Clear any winning highlights
+        document.querySelectorAll('.winning-cell').forEach(cell => {
+            cell.classList.remove('winning-cell');
+        });
+        
+        // Push to Firebase
         gameRef.set({
-            board: Array(9).fill(null),
-            currentPlayer: 'X',
-            players,
-            xMoves: [], oMoves: [],
+            board: board,
+            currentPlayer: currentPlayer,
+            players: players,
+            xMoves: xMoves,
+            oMoves: oMoves,
             gameActive: true,
             winner: null
         }).then(() => showNotification('Game reset','success'))
@@ -434,7 +451,10 @@ document.addEventListener('DOMContentLoaded', () => {
         playerListElement.innerHTML = '';
         document.getElementById('playerXStatus').textContent = 'Offline';
         document.getElementById('playerOStatus').textContent = 'Offline';
-        document.querySelectorAll('.cell').forEach(c => c.className = 'cell');
+        document.querySelectorAll('.cell').forEach(c => {
+            c.className = 'cell';
+            c.classList.remove('winning-cell');
+        });
         document.querySelectorAll('.pawn-counter').forEach(pc => pc.textContent = '');
 
         createGame();

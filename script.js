@@ -309,7 +309,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Handle cell click
     async function handleCellClick(index) {
-        if (!gameActive || board[index] !== null || playerRole !== currentPlayer) {
+        if (!gameActive || board[index] !== null) {
             return showNotification('Invalid move','error');
         }
 

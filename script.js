@@ -202,7 +202,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Check for win
+    // Check for win - updated to take player and board
     function checkWin(player, board) {
         const patterns = [
             [0,1,2],[3,4,5],[6,7,8],
@@ -214,7 +214,7 @@ document.addEventListener('DOMContentLoaded', () => {
         );
     }
 
-    // Check if board is full
+    // Check if board is full - updated to take board
     function isBoardFull(board) {
         return board.every(cell => cell !== null);
     }
@@ -320,68 +320,78 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Handle cell click
     async function handleCellClick(index) {
-        if (!gameActive) return showNotification('Game not active','error');
+        if (!gameActive) {
+            return showNotification('Game not active','error');
+        }
+
         try {
-            const result = await gameRef.transaction(snapshot => {
-                if (!snapshot) return;  // no game
-                const gd = snapshot;
-                // normalize move lists & cap at 3
-                let xArr = toArray(gd.xMoves||[]).slice(-3),
-                    oArr = toArray(gd.oMoves||[]).slice(-3);
-                // rebuild board from moves
-                const tmpBoard = Array(9).fill(null);
-                xArr.forEach(i=> tmpBoard[i]='X');
-                oArr.forEach(i=> tmpBoard[i]='O');
+            const snap = await gameRef.once('value');
+            const gd = snap.val();
+            if (!gd) return showNotification('Game not found', 'error');
+            
+            board         = normalizeBoard(gd.board);
+            currentPlayer = gd.currentPlayer || 'X';
+            xMoves        = toArray(gd.xMoves || []);
+            oMoves        = toArray(gd.oMoves || []);
+            gameActive    = gd.gameActive !== false;
 
-                // abort if game over or not your turn
-                if (!gd.gameActive || gd.winner || playerRole !== gd.currentPlayer) {
+            const result = await gameRef.transaction(gd2 => {
+                if (!gd2) return; // game might have been deleted
+                
+                // Normalize moves arrays
+                gd2.xMoves = toArray(gd2.xMoves || []);
+                gd2.oMoves = toArray(gd2.oMoves || []);
+                gd2.board = normalizeBoard(gd2.board);
+
+                // Validate move
+                if (!gd2.gameActive || playerRole !== gd2.currentPlayer) {
+                    return; // abort transaction
+                }
+
+                // Allow replacing own pawn when at max
+                if (gd2.board[index] !== null && gd2.board[index] !== gd2.currentPlayer) {
                     return;
                 }
-                // abort if clicking on opponent pawn
-                if (tmpBoard[index] !== null && tmpBoard[index] !== gd.currentPlayer) {
-                    return;
-                }
 
-                // perform removal if at cap
-                if (gd.currentPlayer === 'X') {
-                    if (xArr.length === 3) xArr.shift();
-                    xArr.push(index);
+                // Place pawn - remove oldest pawn BEFORE adding new one
+                if (gd2.currentPlayer === 'X') {
+                    // Remove oldest pawn if we're at max
+                    if (gd2.xMoves.length >= 3) {
+                        const old = gd2.xMoves.shift();
+                        gd2.board[old] = null;
+                    }
+                    gd2.xMoves.push(index);
                 } else {
-                    if (oArr.length === 3) oArr.shift();
-                    oArr.push(index);
+                    // Remove oldest pawn if we're at max
+                    if (gd2.oMoves.length >= 3) {
+                        const old = gd2.oMoves.shift();
+                        gd2.board[old] = null;
+                    }
+                    gd2.oMoves.push(index);
                 }
+                gd2.board[index] = gd2.currentPlayer;
 
-                // rebuild board again
-                const newBoard = Array(9).fill(null);
-                xArr.forEach(i=> newBoard[i]='X');
-                oArr.forEach(i=> tmpBoard[i]='O');
-
-                // write back
-                gd.board = newBoard;
-                gd.xMoves = xArr;
-                gd.oMoves = oArr;
-
-                // check win/draw
-                const cp = gd.currentPlayer;
-                const won = checkWin(cp, newBoard);
-                if (won) {
-                    gd.winner = cp;
-                    gd.gameActive = false;
-                } else if (isBoardFull(newBoard)) {
-                    gd.winner = 'draw';
-                    gd.gameActive = false;
+                // win/draw
+                if (checkWin(gd2.currentPlayer, gd2.board)) {
+                    gd2.winner = gd2.currentPlayer;
+                    gd2.gameActive = false;
+                } else if (isBoardFull(gd2.board)) {
+                    gd2.winner = 'draw';
+                    gd2.gameActive = false;
                 } else {
-                    gd.currentPlayer = cp==='X'?'O':'X';
+                    gd2.currentPlayer = gd2.currentPlayer === 'X' ? 'O' : 'X';
                 }
-                return gd;
+
+                return gd2;
             });
 
             if (result && !result.committed) {
-                showNotification('Invalid move','error');
+                showNotification('Invalid move or conflict','error');
             }
+
         } catch (err) {
-            console.error(err);
-            showNotification('Error making move','error');
+            console.error('Move error:', err);
+            showNotification('Error making move: ' + err.message, 'error');
         }
     }
 
